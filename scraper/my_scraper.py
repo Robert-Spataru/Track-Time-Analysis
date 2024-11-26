@@ -3,10 +3,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-#beutiful soup import
-from bs4 import BeautifulSoup
-import requests
-
 
 def extract_dropdown_urls(driver, dropdown_button_xpath, 
                           dropdown_menu_class_name, 
@@ -64,25 +60,31 @@ def extract_dropdown_urls(driver, dropdown_button_xpath,
     return url_list
 
 
-def extract_links_by_state(page_url, main_div_class="row mb-2 mt-3", state_div_class="col-6"):
+def extract_links_by_state(driver, page_url, 
+                           main_div_class="row mb-2 mt-3", 
+                           state_div_class="col-6"):
     """
-    Extract state links from a page using BeautifulSoup.
-
+    Extract state links from a page.
+    
     Args:
+        driver: Selenium WebDriver instance.
         page_url (str): URL of the page to scrape.
         main_div_class (str): Class name of the main container div. Default is "row mb-2 mt-3".
         state_div_class (str): Class name of the state divs. Default is "col-6".
-
+        
     Returns:
         dict: A dictionary where keys are state names and values are the links to their pages.
     """
-    # Send a request to the page and parse the HTML content
-    response = requests.get(page_url)
-    soup = BeautifulSoup(response.content, 'html.parser')
+    # Open the specified page
+    driver.get(page_url)
 
-    # Find the main div and state divs
-    main_div = soup.find('div', class_=main_div_class)
-    state_divs = main_div.find_all('div', class_=state_div_class)
+    # Wait for the main div to be present
+    main_div = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.XPATH, f"//div[contains(@class, '{main_div_class}')]"))
+    )
+
+    # Find all sub-divs representing states
+    state_divs = main_div.find_elements(By.XPATH, f".//div[contains(@class, '{state_div_class}')]")
 
     # Initialize dictionary to store links by state
     links_by_state = {}
@@ -90,14 +92,14 @@ def extract_links_by_state(page_url, main_div_class="row mb-2 mt-3", state_div_c
     for state_div in state_divs:
         try:
             # Get the state name
-            state_name_element = state_div.find('small')
+            state_name_element = state_div.find_element(By.XPATH, ".//small")
             state_name = state_name_element.text.strip()
-
+            
             # Skip any unwanted entries
             if state_name != "Overseas":
                 # Get the href link
-                link_element = state_div.find('a', class_='d-block')
-                href = link_element['href']
+                link_element = state_div.find_element(By.XPATH, ".//a[@class='d-block']")
+                href = link_element.get_attribute("href")
                 
                 # Add to dictionary
                 links_by_state[state_name] = href
@@ -108,59 +110,65 @@ def extract_links_by_state(page_url, main_div_class="row mb-2 mt-3", state_div_c
     return links_by_state
 
 
-def extract_meets_by_state(state_meet_links, main_div_class="list-group list-group-flush", sub_child_class="list-group-item-action"):
+def extract_meets_by_state(driver, state_meet_links, 
+                           main_div_xpath="//div[contains(@class, 'list-group list-group-flush')]", 
+                           sub_child_class="list-group-item-action"):
     """
-    Extracts track and field meet links by state from a webpage using BeautifulSoup.
+    Extracts track and field meet links by state from a webpage.
 
-    Args:
-        state_meet_links (dict): A dictionary where keys are state names and values are URLs for each state's meet page.
-        main_div_class (str, optional): Class name of the main div containing the meet links. Defaults to "list-group list-group-flush".
-        sub_child_class (str, optional): Class name of the child elements containing the meet links. Defaults to "list-group-item-action".
+    Parameters:
+    - driver: Selenium WebDriver instance.
+    - state_meet_links: Dictionary where keys are state names and values are URLs for each state's meet page.
+    - main_div_xpath (str, optional): XPath to the main div containing the meet links. Defaults to a commonly used structure.
+    - sub_child_class (str, optional): Class name of the child elements containing the meet links. Defaults to "list-group-item-action".
 
     Returns:
-        dict: A dictionary where keys are state names and values are lists of meet links for that state.
+    - Dictionary: A dictionary where keys are state names and values are lists of meet links for that state.
     """
     # Initialize a dictionary to store meet links by state
     meets_by_state_dict = {}
-
+    
     # Loop through each state and its corresponding link
     for state, link in state_meet_links.items():
-        # Send a request to the state's meet page and parse the HTML content
-        response = requests.get(link)
-        soup = BeautifulSoup(response.content, 'html.parser')
-
-        # Find the main div containing the meet links
-        main_div = soup.find('div', class_=main_div_class)
-
+        # Navigate to the state's meet page
+        driver.get(link)
+        
+        # Wait for the main div to be present on the page
+        main_div = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, main_div_xpath))
+        )
+        
         # Find all child elements within the main div that match the specified class
-        sub_child_elements = main_div.find_all('a', class_=sub_child_class)
-
+        sub_child_elements = main_div.find_elements(By.XPATH, f".//a[contains(@class, '{sub_child_class}')]")
+        
         # Extract href attributes (links) from the child elements
-        links = [element['href'] for element in sub_child_elements]
-
+        links = [element.get_attribute("href") for element in sub_child_elements]
+        
         # Add the state and its associated meet links to the dictionary
         meets_by_state_dict[state] = links
-
+    
     # Return the dictionary containing meet links by state
     return meets_by_state_dict
 
 
-def extract_event_links(meets_by_state, target_events=["100 Meters", "200 Meters", "400 Meters"],
-                        genders=["Male", "Female"], 
-                        main_div_class="col-sm-6 mb-3 ng-star-inserted",
-                        sub_child_class="b"):
+def extract_event_links(driver, meets_by_state, 
+                        target_events=["100 Meters", "200 Meters", "400 Meters"],
+                        genders=["Male", "Female"],
+                        main_div_xpath="//div[@class='col-sm-6 mb-3 ng-star-inserted' and .//h4[contains(text(), '{}')]]",
+                        sub_child_class=".//a[contains(@href, 'results') and span[contains(@class, 'b') and text() = 'Varsity']]"):
     """
-    Extracts event links organized by state, meet, and gender using BeautifulSoup.
-
+    Extracts event links organized by state, meet, and gender.
+    
     Args:
-        meets_by_state (dict): A dictionary where keys are state names and values are lists of meet URLs.
-        target_events (list): List of event names to filter for (default: ["100 Meters", "200 Meters", "400 Meters"]).
-        genders (list): List of genders to extract data for (default: ["Male", "Female"]).
-        main_div_class (str): Class name for the gender sections (default: "col-sm-6 mb-3 ng-star-inserted").
-        sub_child_class (str): Class name for locating specific event links within the gender section (default: "b").
+        driver: Selenium WebDriver instance.
+        meets_by_state: A dictionary where keys are state names and values are lists of meet URLs.
+        target_events: List of event names to filter for (default: ["100 Meters", "200 Meters", "400 Meters"]).
+        genders: List of genders to extract data for (default: ["Male", "Female"]).
+        main_div_xpath: XPath template for locating gender sections (default provided).
+        sub_child_class: XPath for locating specific event links within the gender section (default provided).
     
     Returns:
-        dict: Nested dictionary with states as keys and dictionaries of meets and event links as values.
+        events_by_meet_by_state_dict: Nested dictionary with states as keys and dictionaries of meets and event links as values.
     """
     events_by_meet_by_state_dict = {}
 
@@ -169,23 +177,24 @@ def extract_event_links(meets_by_state, target_events=["100 Meters", "200 Meters
         events_by_meet_by_state_dict[state] = {}
 
         for meet_link in state_meets_list:
-            # Send a request to the meet page and parse the HTML content
-            response = requests.get(meet_link)
-            soup = BeautifulSoup(response.content, 'html.parser')
+            driver.get(meet_link)
             
             # Initialize the meet-level dictionary
             meet_event_links = {}
 
             for gender in genders:
-                # Find the gender section based on the class and gender
-                gender_section = soup.find('div', class_=main_div_class, string=gender)
-
+                # Format the XPath for the current gender
+                gender_section_xpath = main_div_xpath.format(gender)
+                
                 try:
+                    # Locate the gender section
+                    gender_section = driver.find_element(By.XPATH, gender_section_xpath)
+                    
                     # Find event links within the gender section
-                    event_links = gender_section.find_all('a', class_=sub_child_class)
-
+                    event_links = gender_section.find_elements(By.XPATH, sub_child_class)
+                    
                     # Filter links for the target events
-                    filtered_links = [link['href'] for link in event_links 
+                    filtered_links = [link.get_attribute('href') for link in event_links 
                                       if any(event in link.text for event in target_events)]
                     
                     # Store the filtered links under the gender
@@ -199,3 +208,12 @@ def extract_event_links(meets_by_state, target_events=["100 Meters", "200 Meters
             events_by_meet_by_state_dict[state][meet_link] = meet_event_links
 
     return events_by_meet_by_state_dict
+
+
+def extract_data_into_table(driver, events_by_meet_by_state_dict, table_dataframe):
+    pass
+
+
+def loop_through_years(driver):
+    pass
+
